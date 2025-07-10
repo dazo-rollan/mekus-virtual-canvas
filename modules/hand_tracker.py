@@ -94,10 +94,7 @@ class HandTracker:
 
     def update_drawing_mode(self, raised_fingers):
         """Check if the drawing mode is active based on raised fingers."""
-        self.draw_modes = [False] * len(raised_fingers)
-
-        if not self.is_drawing_mode:
-            return
+        self.draw_modes.clear()
 
         for fingers in raised_fingers:
             is_drawing = fingers.get("INDEX_FINGER") and not fingers.get(
