@@ -1,7 +1,6 @@
 import cv2
 import threading
 
-
 class Camera:
     """
     Camera class for initialization, frame handling, and cleanup.
