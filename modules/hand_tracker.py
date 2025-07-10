@@ -118,7 +118,7 @@ class HandTracker:
                     tip, image_bgr.shape
                 )
                 self.draw_finger_tip(
-                    image_bgr, finger_name, (x_coord, y_coord), draw_mode
+                    image_bgr, finger_name, (x_coord, y_coord), is_draw_mode
                 )
 
     def draw_finger_tip(self, image_bgr, finger_name, coord, is_draw_mode):
