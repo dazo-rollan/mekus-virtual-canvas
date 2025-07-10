@@ -85,7 +85,11 @@ class HandTracker:
                 image_bgr,
                 landmark,
                 raised_fingers[hand_idx],
-                self.draw_modes[index],
+                is_draw_mode=(
+                    self.draw_modes[hand_idx]
+                    if hand_idx < len(self.draw_modes)
+                    else False
+                ),
             )
 
     def update_drawing_mode(self, raised_fingers):
