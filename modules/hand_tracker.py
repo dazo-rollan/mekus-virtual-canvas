@@ -184,5 +184,5 @@ class HandTracker:
             int(landmark.y * image_height),
         )
 
-    def toggle_drawing_mode(self, is_drawing_mode):
-        self.is_drawing_mode = is_drawing_mode
+    def toggle_drawing_mode(self):
+        self.is_drawing_mode = not self.is_drawing_mode
