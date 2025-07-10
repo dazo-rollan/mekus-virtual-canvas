@@ -36,6 +36,7 @@ class HandTracker:
             min_detection_confidence=detection_conf,
             min_tracking_confidence=tracking_conf,
         )
+
         self.hand_landmarks = None
 
         self.is_drawing_mode = False
