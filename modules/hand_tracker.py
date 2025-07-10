@@ -1,5 +1,7 @@
 import cv2 as cv
+import numpy as np
 import mediapipe as mp
+
 
 class HandTracker:
     """Track hand landmarks and detect raised fingers using MediaPipe Hands."""
@@ -14,6 +16,8 @@ class HandTracker:
     INDEX_FINGER_KEY = "INDEX_FINGER"
     MIDDLE_FINGER_KEY = "MIDDLE_FINGER"
 
+    SELECTED_HAND_INDEX = 0  # Only one hand is selected for drawing
+
     # Finger landmark indices
     # These indices correspond to the MediaPipe Hands landmark model
     # https://chuoling.github.io/mediapipe/solutions/hands.html
@@ -25,7 +29,7 @@ class HandTracker:
     def __init__(
         self,
         use_static_image_mode=False,
-        max_num_hands=10,
+        max_num_hands=2,
         detection_conf=0.8,
         tracking_conf=0.85,
     ):
@@ -37,8 +41,12 @@ class HandTracker:
             min_tracking_confidence=tracking_conf,
         )
 
-        self.hand_landmarks = None
+        self.prev_index_up = False
+        self.prev_middle_up = False
 
+        self.is_clicked_prev = False
+
+        self.hand_landmarks = None
         self.is_drawing_mode = False
         self.draw_modes = []
 
@@ -50,23 +58,29 @@ class HandTracker:
 
         return image_bgr
 
-    def get_finger_positions(self):
-        """Get current finger positions for all hands."""
+    def get_hand_position(self, image_bgr):
+        """Get current finger positions for all hands, separated by index."""
         if not self.has_landmarks():
             return {}
 
-        positions = {}
-        for hand in self.hand_landmarks.multi_hand_landmarks:
-            for finger_name, joint_names in self.FINGER_LANDMARKS.items():
-                tip = hand.landmark[joint_names["TIP"]]
-                positions[finger_name] = self.normalize_coordinates(tip)
+        selected_hand = self.hand_landmarks.multi_hand_landmarks[
+            self.SELECTED_HAND_INDEX
+        ]
 
-        return positions
+        finger_positions = {}
+        for finger_name, joint_names in self.FINGER_LANDMARKS.items():
+            tip = selected_hand.landmark[joint_names["TIP"]]
+            finger_positions[finger_name] = self.normalize_coordinates(
+                tip, image_bgr.shape
+            )
+
+        return finger_positions
 
     def update_landmarks(self, image_bgr):
         """Update hand landmarks from the current frame."""
         image_rgb = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
         self.hand_landmarks = self.hand_detector.process(image_rgb)
+        self.hand_classifications = self.hand_landmarks.multi_handedness or []
 
     def has_landmarks(self):
         """Check if valid landmarks exist."""
@@ -175,7 +189,7 @@ class HandTracker:
     def normalize_coordinates(self, landmark, image_shape=None):
         """Convert normalized coordinates to pixel coordinates."""
         if image_shape is None:
-            return (landmark.x, landmark.y)
+            return (int(landmark.x), int(landmark.y))
 
         image_height, image_width, _ = image_shape
 
