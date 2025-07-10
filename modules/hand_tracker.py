@@ -84,7 +84,7 @@ class HandTracker:
             self.draw_finger_tips(
                 image_bgr,
                 landmark,
-                raised_fingers[index],
+                raised_fingers[hand_idx],
                 self.draw_modes[index],
             )
 
