@@ -103,7 +103,13 @@ class HandTracker:
             )
             self.draw_modes.append(is_drawing)
 
-    def draw_finger_tips(self, image_bgr, landmark, raised_fingers, draw_mode):
+    def draw_finger_tips(
+        self,
+        image_bgr,
+        landmark,
+        raised_fingers,
+        is_draw_mode,
+    ):
         """Draw tips for raised fingers of a single hand."""
         for finger_name, joint_names in self.FINGER_LANDMARKS.items():
             if raised_fingers.get(finger_name):
@@ -115,7 +121,7 @@ class HandTracker:
                     image_bgr, finger_name, (x_coord, y_coord), draw_mode
                 )
 
-    def draw_finger_tip(self, image_bgr, finger_name, coord, draw_mode):
+    def draw_finger_tip(self, image_bgr, finger_name, coord, is_draw_mode):
         """Draw a single finger tip marker based on its hand's draw mode."""
         cv.circle(
             image_bgr,
@@ -126,7 +132,7 @@ class HandTracker:
         )
 
         # Draw inner circle only if not in drawing mode and not the index finger
-        if not (draw_mode and finger_name == "INDEX_FINGER"):
+        if not (is_draw_mode and finger_name == self.INDEX_FINGER_KEY):
             cv.circle(
                 image_bgr,
                 coord,
