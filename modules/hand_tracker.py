@@ -26,7 +26,7 @@ class HandTracker:
         self,
         use_static_image_mode=False,
         max_num_hands=10,
-        detection_conf=0.5,
+        detection_conf=0.8,
         tracking_conf=0.85,
     ):
         """Initialize the hand tracker with MediaPipe Hands settings."""
