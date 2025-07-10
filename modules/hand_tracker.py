@@ -40,6 +40,7 @@ class HandTracker:
         self.hand_landmarks = None
 
         self.is_drawing_mode = False
+        self.draw_modes = []
 
     def process_frame(self, image_bgr):
         """Process a frame and return it with drawn landmarks."""
