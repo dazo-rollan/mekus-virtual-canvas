@@ -78,7 +78,7 @@ class HandTracker:
 
         self.update_drawing_mode(raised_fingers)
 
-        for index, landmark in enumerate(
+        for hand_idx, landmark in enumerate(
             self.hand_landmarks.multi_hand_landmarks,
         ):
             self.draw_finger_tips(
