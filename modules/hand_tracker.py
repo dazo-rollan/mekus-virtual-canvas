@@ -97,7 +97,8 @@ class HandTracker:
         self.draw_modes.clear()
 
         for fingers in raised_fingers:
-            is_drawing = fingers.get("INDEX_FINGER") and not fingers.get(
+            index_up = fingers.get(self.INDEX_FINGER_KEY)
+            middle_up = fingers.get(
                 "MIDDLE_FINGER"
             )
             self.draw_modes.append(is_drawing)
