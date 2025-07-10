@@ -186,3 +186,36 @@ class HandTracker:
 
     def toggle_drawing_mode(self):
         self.is_drawing_mode = not self.is_drawing_mode
+
+    def detect_click(self):
+        """Detect click gesture based on index and middle finger positions."""
+        if not self.has_landmarks():
+            return False
+
+        hand = self.hand_landmarks.multi_hand_landmarks[
+            self.SELECTED_HAND_INDEX
+        ]
+
+        index_joints = self.FINGER_LANDMARKS[self.INDEX_FINGER_KEY]
+        middle_joints = self.FINGER_LANDMARKS[self.MIDDLE_FINGER_KEY]
+
+        index_up = self.is_finger_raised(hand, index_joints)
+        middle_up = self.is_finger_raised(hand, middle_joints)
+
+        # Click happens only if index stays up and middle transitions down
+        middle_curled = not middle_up
+        was_ready = self.prev_index_up and self.prev_middle_up
+        click_happened = (
+            was_ready
+            and index_up
+            and middle_curled
+            and not self.is_clicked_prev
+        )
+
+        # Update previous states for next frame
+        self.prev_index_up = index_up
+        self.prev_middle_up = middle_up
+
+        # Optional: add a cooldown or debounce here if desired
+        self.is_clicked_prev = click_happened  # Simple lock
+        return click_happened
