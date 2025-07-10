@@ -180,8 +180,8 @@ class HandTracker:
         image_height, image_width, _ = image_shape
 
         return (
-            int(landmark.x * image_height),
-            int(landmark.y * image_width),
+            int(landmark.x * image_width),
+            int(landmark.y * image_height),
         )
 
     def toggle_drawing_mode(self, is_drawing_mode):
