@@ -245,7 +245,7 @@ class VirtualCanvas:
     def select_size(self, button):
         """Change the brush size based on the selected pen size button."""
         if button in self.menu.pen_size_buttons:
-            self.brush_size = button.radius
+            self.brush_size = button.value
 
     def select_shape(self, button):
         """Select the drawing tool based on the clicked shape button."""
