@@ -26,7 +26,7 @@ class HandTracker:
         self,
         use_static_image_mode=False,
         max_num_hands=10,
-        detection_conf=0.5,
+        detection_conf=0.8,
         tracking_conf=0.85,
     ):
         """Initialize the hand tracker with MediaPipe Hands settings."""
@@ -36,9 +36,11 @@ class HandTracker:
             min_detection_confidence=detection_conf,
             min_tracking_confidence=tracking_conf,
         )
+
         self.hand_landmarks = None
 
         self.is_drawing_mode = False
+        self.draw_modes = []
 
     def process_frame(self, image_bgr):
         """Process a frame and return it with drawn landmarks."""
@@ -76,30 +78,38 @@ class HandTracker:
 
         self.update_drawing_mode(raised_fingers)
 
-        for index, landmark in enumerate(
+        for hand_idx, landmark in enumerate(
             self.hand_landmarks.multi_hand_landmarks,
         ):
             self.draw_finger_tips(
                 image_bgr,
                 landmark,
-                raised_fingers[index],
-                self.draw_modes[index],
+                raised_fingers[hand_idx],
+                is_draw_mode=(
+                    self.draw_modes[hand_idx]
+                    if hand_idx < len(self.draw_modes)
+                    else False
+                ),
             )
 
     def update_drawing_mode(self, raised_fingers):
         """Check if the drawing mode is active based on raised fingers."""
-        self.draw_modes = [False] * len(raised_fingers)
-
-        if not self.is_drawing_mode:
-            return
+        self.draw_modes.clear()
 
         for fingers in raised_fingers:
-            is_drawing = fingers.get("INDEX_FINGER") and not fingers.get(
-                "MIDDLE_FINGER"
-            )
+            index_up = fingers.get(self.INDEX_FINGER_KEY)
+            middle_up = fingers.get(self.MIDDLE_FINGER_KEY)
+
+            is_drawing = index_up and not middle_up
             self.draw_modes.append(is_drawing)
 
-    def draw_finger_tips(self, image_bgr, landmark, raised_fingers, draw_mode):
+    def draw_finger_tips(
+        self,
+        image_bgr,
+        landmark,
+        raised_fingers,
+        is_draw_mode,
+    ):
         """Draw tips for raised fingers of a single hand."""
         for finger_name, joint_names in self.FINGER_LANDMARKS.items():
             if raised_fingers.get(finger_name):
@@ -108,10 +118,10 @@ class HandTracker:
                     tip, image_bgr.shape
                 )
                 self.draw_finger_tip(
-                    image_bgr, finger_name, (x_coord, y_coord), draw_mode
+                    image_bgr, finger_name, (x_coord, y_coord), is_draw_mode
                 )
 
-    def draw_finger_tip(self, image_bgr, finger_name, coord, draw_mode):
+    def draw_finger_tip(self, image_bgr, finger_name, coord, is_draw_mode):
         """Draw a single finger tip marker based on its hand's draw mode."""
         cv.circle(
             image_bgr,
@@ -122,7 +132,7 @@ class HandTracker:
         )
 
         # Draw inner circle only if not in drawing mode and not the index finger
-        if not (draw_mode and finger_name == "INDEX_FINGER"):
+        if not (is_draw_mode and finger_name == self.INDEX_FINGER_KEY):
             cv.circle(
                 image_bgr,
                 coord,
@@ -170,9 +180,9 @@ class HandTracker:
         image_height, image_width, _ = image_shape
 
         return (
-            int(landmark.x * image_height),
-            int(landmark.y * image_width),
+            int(landmark.x * image_width),
+            int(landmark.y * image_height),
         )
 
-    def toggle_drawing_mode(self, is_drawing_mode):
-        self.is_drawing_mode = is_drawing_mode
+    def toggle_drawing_mode(self):
+        self.is_drawing_mode = not self.is_drawing_mode
