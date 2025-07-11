@@ -89,24 +89,37 @@ class HandTracker:
         return self.hand_landmarks and self.hand_landmarks.multi_hand_landmarks
 
     def draw_raised_fingers(self, image_bgr):
-        """Draw circles on raised fingers for all hands."""
+        """Draw circles on all raised fingers for each detected hand."""
         raised_fingers = self.detect_raised_fingers()
-
         self.update_drawing_mode(raised_fingers)
 
         for hand_idx, landmark in enumerate(
-            self.hand_landmarks.multi_hand_landmarks,
+            self.hand_landmarks.multi_hand_landmarks
         ):
-            self.draw_finger_tips(
-                image_bgr,
-                landmark,
-                raised_fingers[hand_idx],
-                is_draw_mode=(
-                    self.draw_modes[hand_idx]
-                    if hand_idx < len(self.draw_modes)
-                    else False
-                ),
+            self._draw_finger_tips_for_hand(
+                image_bgr, hand_idx, landmark, raised_fingers
             )
+            
+    def _draw_finger_tips_for_hand(
+        self,
+        image_bgr,
+        hand_idx,
+        landmark,
+        raised_fingers
+    ):
+        """Draw raised finger tips for a specific hand based on index."""
+        is_draw_mode = self._get_draw_mode_for_hand(hand_idx)
+        self.draw_finger_tips(
+            image_bgr, landmark, raised_fingers[hand_idx], is_draw_mode
+        )
+
+    def _get_draw_mode_for_hand(self, hand_idx):
+        """Return whether the specific hand is in drawing mode."""
+        return (
+            self.draw_modes[hand_idx]
+            if hand_idx < len(self.draw_modes)
+            else False
+        )
 
     def update_drawing_mode(self, raised_fingers):
         """Check if the drawing mode is active based on raised fingers."""
@@ -211,27 +224,35 @@ class HandTracker:
         hand = self.hand_landmarks.multi_hand_landmarks[
             self.SELECTED_HAND_INDEX
         ]
+        index_up, middle_up = self._get_current_finger_states(hand)
 
+        click_happened = self._is_click_happening(index_up, middle_up)
+        self._update_previous_states(index_up, middle_up, click_happened)
+
+        return click_happened
+
+    def _get_current_finger_states(self, hand):
+        """Get the current raised states of index and middle fingers."""
         index_joints = self.FINGER_LANDMARKS[self.INDEX_FINGER_KEY]
         middle_joints = self.FINGER_LANDMARKS[self.MIDDLE_FINGER_KEY]
+        return (
+            self.is_finger_raised(hand, index_joints),
+            self.is_finger_raised(hand, middle_joints),
+        )
 
-        index_up = self.is_finger_raised(hand, index_joints)
-        middle_up = self.is_finger_raised(hand, middle_joints)
-
-        # Click happens only if index stays up and middle transitions down
+    def _is_click_happening(self, index_up, middle_up):
+        """Determine if a click gesture occurred based on finger states."""
         middle_curled = not middle_up
         was_ready = self.prev_index_up and self.prev_middle_up
-        click_happened = (
+        return (
             was_ready
             and index_up
             and middle_curled
             and not self.is_clicked_prev
         )
 
-        # Update previous states for next frame
+    def _update_previous_states(self, index_up, middle_up, click_happened):
+        """Update previous finger states for click detection."""
         self.prev_index_up = index_up
         self.prev_middle_up = middle_up
-
-        # Optional: add a cooldown or debounce here if desired
-        self.is_clicked_prev = click_happened  # Simple lock
-        return click_happened
+        self.is_clicked_prev = click_happened
