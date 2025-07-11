@@ -107,89 +107,92 @@ class VirtualCanvas:
         if frame is None:
             return False
 
-        # Flip frame horizontally for mirror effect
         frame = cv.flip(frame, 1)
-
-        # Process hand tracking
         processed_frame = self.tracker.process_frame(frame)
 
-        # Get finger position
-        finger_pos = self.tracker.get_hand_position(processed_frame)
-        index_pos = finger_pos.get(self.tracker.INDEX_FINGER_KEY, None)
-
-        hand_draw_modes = self.tracker.draw_modes
-        will_draw = False
-        if hand_draw_modes:
-            will_draw = hand_draw_modes[0]
+        index_pos, will_draw = self.get_finger_info(processed_frame)
 
         if not will_draw:
             self.prev_pos = None
 
-        # Handle drawing if canvas is visible
         if self.tracker.is_drawing_mode and will_draw:
             self.handle_drawing(index_pos, processed_frame)
 
-        # Handle UI interactions
         self.handle_ui_interaction(index_pos, processed_frame)
 
+        if self.show_canvas:
+            self.blend_canvas_onto_frame(processed_frame)
+
+        cv.imshow("Virtual Canvas", processed_frame)
+        return cv.waitKey(self.FRAME_DELAY) != self.ESC_KEY
+
+    def get_finger_info(self, frame):
+        """Extract finger position and drawing state."""
+        finger_pos = self.tracker.get_hand_position(frame)
+        index_pos = finger_pos.get(self.tracker.INDEX_FINGER_KEY, None)
+
+        draw_modes = self.tracker.draw_modes
+        will_draw = draw_modes[0] if draw_modes else False
+
+        return index_pos, will_draw
+
+    def blend_canvas_onto_frame(self, frame):
+        """Blend the canvas onto the live video frame."""
         canvas_y, canvas_x = self.canvas_origin
         height, width = self.canvas_size
 
-        if self.show_canvas:
-            frame_region = processed_frame[
-                canvas_y : canvas_y + height, canvas_x : canvas_x + width
-            ]
-            blended = cv.addWeighted(frame_region, 0.5, self.canvas, 0.5, 0)
-            processed_frame[
-                canvas_y : canvas_y + height, canvas_x : canvas_x + width
-            ] = blended
-
-        # Display the frame
-        cv.imshow("Virtual Canvas", processed_frame)
-
-        return cv.waitKey(self.FRAME_DELAY) != self.ESC_KEY
+        frame_region = frame[
+            canvas_y : canvas_y + height, canvas_x : canvas_x + width
+        ]
+        blended = cv.addWeighted(frame_region, 0.5, self.canvas, 0.5, 0)
+        frame[
+            canvas_y : canvas_y + height, canvas_x : canvas_x + width
+        ] = blended
 
     def handle_drawing(self, finger_pos, frame):
         """Handle drawing operations on the canvas."""
         if not self.show_canvas or not finger_pos:
             return
 
-        # Convert finger position to canvas coordinates
         canvas_x = finger_pos[0] - self.canvas_origin[1]
         canvas_y = finger_pos[1] - self.canvas_origin[0]
 
-        # Check if finger is within canvas bounds
-        if not (
-            0 <= canvas_x < self.canvas_size[1]
-            and 0 <= canvas_y < self.canvas_size[0]
-        ):
+        if not self.is_within_canvas(canvas_x, canvas_y):
             self.prev_pos = None
             return
 
-        if not self.prev_pos:
+        self.draw_on_canvas(canvas_x, canvas_y)
+
+    def is_within_canvas(self, canvas_x, canvas_y):
+        """Check if the canvas_x and canvas_y are within canvas bounds."""
+        return (
+            0 <= canvas_x < self.canvas_size[1]
+            and 0 <= canvas_y < self.canvas_size[0]
+        )
+
+    def draw_on_canvas(self, canvas_x, canvas_y):
+        """Draw or erase on the canvas at the given canvas coordinates."""
+        if self.prev_pos is None:
             self.prev_pos = (canvas_x, canvas_y)
 
-        # Handle eraser or drawing tool
         if self.is_eraser:
             cv.circle(
                 self.canvas,
                 (canvas_x, canvas_y),
-                self.brush_size * 2,  # Make eraser larger
+                self.brush_size * 2,
                 WHITE,
                 -1,
             )
 
         if not self.is_eraser:
-            if self.prev_pos:
-                cv.line(
-                    self.canvas,
-                    self.prev_pos,
-                    (canvas_x, canvas_y),
-                    self.current_color,
-                    self.brush_size,
-                )
+            cv.line(
+                self.canvas,
+                self.prev_pos,
+                (canvas_x, canvas_y),
+                self.current_color,
+                self.brush_size,
+            )
 
-        # previous position
         self.prev_pos = (canvas_x, canvas_y)
 
     def handle_ui_interaction(self, finger_pos, frame):
@@ -212,32 +215,48 @@ class VirtualCanvas:
 
     def handle_button_action(self, button):
         """Execute actions based on button clicks."""
+        self.toggle_ui_states(button)
+        self.select_color(button)
+        self.select_size(button)
+        self.select_shape(button)
+        self.clear_canvas(button)
+
+    def toggle_ui_states(self, button):
+        """Toggle UI element states based on the selected button."""
         if button.label == "Board":
             self.tracker.toggle_drawing_mode()
             self.show_canvas = not self.show_canvas
 
-        if button.label == "Colors":
+        elif button.label == "Colors":
             self.show_colors = not self.show_colors
 
-        if button.label == "Size":
+        elif button.label == "Size":
             self.show_brush_sizes = not self.show_brush_sizes
 
-        if button.label == "Eraser":
+        elif button.label == "Eraser":
             self.is_eraser = not self.is_eraser
 
+    def select_color(self, button):
+        """Select a new color from the color button pressed."""
         if button in self.menu.color_buttons:
             self.current_color = button.color
             self.is_eraser = False
 
+    def select_size(self, button):
+        """Change the brush size based on the selected pen size button."""
         if button in self.menu.pen_size_buttons:
             self.brush_size = button.radius
 
-        if button == self.menu.clear_button:
-            self.canvas[:] = WHITE
-
+    def select_shape(self, button):
+        """Select the drawing tool based on the clicked shape button."""
         if button in self.menu.shape_buttons:
             self.current_tool = button.label
             self.is_eraser = False
+
+    def clear_canvas(self, button):
+        """Clear the entire canvas when the clear button is pressed."""
+        if button == self.menu.clear_button:
+            self.canvas[:] = WHITE
 
     def run(self):
         """Main application loop."""
