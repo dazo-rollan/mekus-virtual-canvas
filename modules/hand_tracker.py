@@ -1,18 +1,24 @@
 import cv2 as cv
+import numpy as np
 import mediapipe as mp
+
+from modules.drawing import LIGHT_GRAY, DARKER_GRAY
+
 
 class HandTracker:
     """Track hand landmarks and detect raised fingers using MediaPipe Hands."""
 
     # Drawing constants
     CIRCLE_TIP_RADIUS = 5
-    INNER_CIRCLE_TIP_COLOR = (75, 75, 75)
-    OUTER_CIRCLE_TIP_COLOR = (200, 200, 200)
+    INNER_CIRCLE_TIP_COLOR = LIGHT_GRAY
+    OUTER_CIRCLE_TIP_COLOR = DARKER_GRAY
     INNER_CIRCLE_TIP_FILL = cv.FILLED
     OUTER_CIRCLE_TIP_THICKNESS = 2
 
     INDEX_FINGER_KEY = "INDEX_FINGER"
     MIDDLE_FINGER_KEY = "MIDDLE_FINGER"
+
+    SELECTED_HAND_INDEX = 0  # Only one hand is selected for drawing
 
     # Finger landmark indices
     # These indices correspond to the MediaPipe Hands landmark model
@@ -25,8 +31,8 @@ class HandTracker:
     def __init__(
         self,
         use_static_image_mode=False,
-        max_num_hands=10,
-        detection_conf=0.5,
+        max_num_hands=2,
+        detection_conf=0.8,
         tracking_conf=0.85,
     ):
         """Initialize the hand tracker with MediaPipe Hands settings."""
@@ -36,9 +42,15 @@ class HandTracker:
             min_detection_confidence=detection_conf,
             min_tracking_confidence=tracking_conf,
         )
-        self.hand_landmarks = None
 
+        self.prev_index_up = False
+        self.prev_middle_up = False
+
+        self.is_clicked_prev = False
+
+        self.hand_landmarks = None
         self.is_drawing_mode = False
+        self.draw_modes = []
 
     def process_frame(self, image_bgr):
         """Process a frame and return it with drawn landmarks."""
@@ -48,23 +60,29 @@ class HandTracker:
 
         return image_bgr
 
-    def get_finger_positions(self):
-        """Get current finger positions for all hands."""
+    def get_hand_position(self, image_bgr):
+        """Get current finger positions for all hands, separated by index."""
         if not self.has_landmarks():
             return {}
 
-        positions = {}
-        for hand in self.hand_landmarks.multi_hand_landmarks:
-            for finger_name, joint_names in self.FINGER_LANDMARKS.items():
-                tip = hand.landmark[joint_names["TIP"]]
-                positions[finger_name] = self.normalize_coordinates(tip)
+        selected_hand = self.hand_landmarks.multi_hand_landmarks[
+            self.SELECTED_HAND_INDEX
+        ]
 
-        return positions
+        finger_positions = {}
+        for finger_name, joint_names in self.FINGER_LANDMARKS.items():
+            tip = selected_hand.landmark[joint_names["TIP"]]
+            finger_positions[finger_name] = self.normalize_coordinates(
+                tip, image_bgr.shape
+            )
+
+        return finger_positions
 
     def update_landmarks(self, image_bgr):
         """Update hand landmarks from the current frame."""
         image_rgb = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
         self.hand_landmarks = self.hand_detector.process(image_rgb)
+        self.hand_classifications = self.hand_landmarks.multi_handedness or []
 
     def has_landmarks(self):
         """Check if valid landmarks exist."""
@@ -76,30 +94,38 @@ class HandTracker:
 
         self.update_drawing_mode(raised_fingers)
 
-        for index, landmark in enumerate(
+        for hand_idx, landmark in enumerate(
             self.hand_landmarks.multi_hand_landmarks,
         ):
             self.draw_finger_tips(
                 image_bgr,
                 landmark,
-                raised_fingers[index],
-                self.draw_modes[index],
+                raised_fingers[hand_idx],
+                is_draw_mode=(
+                    self.draw_modes[hand_idx]
+                    if hand_idx < len(self.draw_modes)
+                    else False
+                ),
             )
 
     def update_drawing_mode(self, raised_fingers):
         """Check if the drawing mode is active based on raised fingers."""
-        self.draw_modes = [False] * len(raised_fingers)
-
-        if not self.is_drawing_mode:
-            return
+        self.draw_modes.clear()
 
         for fingers in raised_fingers:
-            is_drawing = fingers.get("INDEX_FINGER") and not fingers.get(
-                "MIDDLE_FINGER"
-            )
+            index_up = fingers.get(self.INDEX_FINGER_KEY)
+            middle_up = fingers.get(self.MIDDLE_FINGER_KEY)
+
+            is_drawing = index_up and not middle_up
             self.draw_modes.append(is_drawing)
 
-    def draw_finger_tips(self, image_bgr, landmark, raised_fingers, draw_mode):
+    def draw_finger_tips(
+        self,
+        image_bgr,
+        landmark,
+        raised_fingers,
+        is_draw_mode,
+    ):
         """Draw tips for raised fingers of a single hand."""
         for finger_name, joint_names in self.FINGER_LANDMARKS.items():
             if raised_fingers.get(finger_name):
@@ -108,10 +134,10 @@ class HandTracker:
                     tip, image_bgr.shape
                 )
                 self.draw_finger_tip(
-                    image_bgr, finger_name, (x_coord, y_coord), draw_mode
+                    image_bgr, finger_name, (x_coord, y_coord), is_draw_mode
                 )
 
-    def draw_finger_tip(self, image_bgr, finger_name, coord, draw_mode):
+    def draw_finger_tip(self, image_bgr, finger_name, coord, is_draw_mode):
         """Draw a single finger tip marker based on its hand's draw mode."""
         cv.circle(
             image_bgr,
@@ -122,7 +148,7 @@ class HandTracker:
         )
 
         # Draw inner circle only if not in drawing mode and not the index finger
-        if not (draw_mode and finger_name == "INDEX_FINGER"):
+        if not (is_draw_mode and finger_name == self.INDEX_FINGER_KEY):
             cv.circle(
                 image_bgr,
                 coord,
@@ -165,14 +191,47 @@ class HandTracker:
     def normalize_coordinates(self, landmark, image_shape=None):
         """Convert normalized coordinates to pixel coordinates."""
         if image_shape is None:
-            return (landmark.x, landmark.y)
+            return (int(landmark.x), int(landmark.y))
 
         image_height, image_width, _ = image_shape
 
         return (
-            int(landmark.x * image_height),
-            int(landmark.y * image_width),
+            int(landmark.x * image_width),
+            int(landmark.y * image_height),
         )
 
-    def toggle_drawing_mode(self, is_drawing_mode):
-        self.is_drawing_mode = is_drawing_mode
+    def toggle_drawing_mode(self):
+        self.is_drawing_mode = not self.is_drawing_mode
+
+    def detect_click(self):
+        """Detect click gesture based on index and middle finger positions."""
+        if not self.has_landmarks():
+            return False
+
+        hand = self.hand_landmarks.multi_hand_landmarks[
+            self.SELECTED_HAND_INDEX
+        ]
+
+        index_joints = self.FINGER_LANDMARKS[self.INDEX_FINGER_KEY]
+        middle_joints = self.FINGER_LANDMARKS[self.MIDDLE_FINGER_KEY]
+
+        index_up = self.is_finger_raised(hand, index_joints)
+        middle_up = self.is_finger_raised(hand, middle_joints)
+
+        # Click happens only if index stays up and middle transitions down
+        middle_curled = not middle_up
+        was_ready = self.prev_index_up and self.prev_middle_up
+        click_happened = (
+            was_ready
+            and index_up
+            and middle_curled
+            and not self.is_clicked_prev
+        )
+
+        # Update previous states for next frame
+        self.prev_index_up = index_up
+        self.prev_middle_up = middle_up
+
+        # Optional: add a cooldown or debounce here if desired
+        self.is_clicked_prev = click_happened  # Simple lock
+        return click_happened

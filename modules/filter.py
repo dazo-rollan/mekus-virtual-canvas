@@ -58,11 +58,7 @@ class Filter:
 
     def apply_gaussian_blur(self, frame):
         """Applies Gaussian Blur to the input frame."""
-        return cv.GaussianBlur(
-            frame,
-            self.gaussian_ksize,
-            self.gaussian_sigmaX
-        )
+        return cv.GaussianBlur(frame, self.gaussian_ksize, self.gaussian_sigmaX)
 
     def apply_median_blur(self, frame):
         """Applies Median Blur to reduce noise."""
@@ -74,7 +70,7 @@ class Filter:
             frame,
             self.bilateral_d,
             self.bilateral_sigmaColor,
-            self.bilateral_sigmaSpace
+            self.bilateral_sigmaSpace,
         )
 
     def apply_sharpening(self, frame):
@@ -103,7 +99,7 @@ class Filter:
             self.sobel_ddepth,
             self.sobel_dx,
             self.sobel_zero,
-            ksize=self.sobel_ksize
+            ksize=self.sobel_ksize,
         )
 
         sobel_y = cv.Sobel(
@@ -111,7 +107,7 @@ class Filter:
             self.sobel_ddepth,
             self.sobel_zero,
             self.sobel_dy,
-            ksize=self.sobel_ksize
+            ksize=self.sobel_ksize,
         )
 
         magnitude = cv.magnitude(sobel_x, sobel_y)
