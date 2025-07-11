@@ -2,14 +2,16 @@ import cv2 as cv
 import numpy as np
 import mediapipe as mp
 
+from modules.drawing import LIGHT_GRAY, DARKER_GRAY
+
 
 class HandTracker:
     """Track hand landmarks and detect raised fingers using MediaPipe Hands."""
 
     # Drawing constants
     CIRCLE_TIP_RADIUS = 5
-    INNER_CIRCLE_TIP_COLOR = (75, 75, 75)
-    OUTER_CIRCLE_TIP_COLOR = (200, 200, 200)
+    INNER_CIRCLE_TIP_COLOR = LIGHT_GRAY
+    OUTER_CIRCLE_TIP_COLOR = DARKER_GRAY
     INNER_CIRCLE_TIP_FILL = cv.FILLED
     OUTER_CIRCLE_TIP_THICKNESS = 2
 

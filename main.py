@@ -1,223 +1,255 @@
 import time
-from threading import Thread
-
 import cv2 as cv
 import numpy as np
-
 from modules.camera import Camera
 from modules.hand_tracker import HandTracker
 from modules.menu import Menu
-from modules.drawing import COLORS, SHAPES, ERASER, CLEAR_DRAWING
+from modules.drawing import (
+    COLORS,
+    WHITE,
+    FREE_DRAW,
+)
 
-class MekusVirtualCanvas:
 
-    EXIT_KEY = 27  # ESC key to exit
-    WAIT_KEY_DELAY = 1  # Delay for key press detection
-
-    MAX_ALPHA = 255  # Maximum opacity for the canvas
-    ALPHA_INDEX = 3
+class VirtualCanvas:
+    ESC_KEY = 27
+    FRAME_DELAY = 1
 
     def __init__(self):
-        """Iniitalize the Mekus Virtual Canvas."""
-        self.cap = Camera()
+        self.camera = Camera(height=720, width=1280)
         self.tracker = HandTracker()
+        self.menu = None
 
+        # Canvas properties
         self.canvas = None
-        self.preview_canvas = None
-        self.frame = None
+        self.canvas_size = None
+        self.canvas_origin = None
 
-        self.prev_finger_pos = ()
-        self.tracker.toggle_drawing_mode()
-        self.brush_color = (0, 0, 255)  # Red color for drawing
-        self.brush_size = 10  # Default brush size
+        # Drawing state
+        self.current_color = COLORS[0]  # Start with red
+        self.brush_size = 10
+        self.current_tool = FREE_DRAW
+        self.is_drawing = False
+        self.prev_pos = None
 
-    def setup_menu(self):
-        """Setup the menu for the Mekus Virtual Canvas."""
-        # Initialize menu items, colors, shapes, etc.
-        # This can be extended to include more features like color selection,
-        # shape drawing, etc.
-        HORIZONTAL_MARGIN_RATIO = 0.1  # 10% of width
-        VERTICAL_MARGIN_RATIO = 0.05  # 5% of height
-        BUTTON_SPACING_RATIO = 0.05  # 5% of height
+        # UI state
+        self.show_canvas = False
+        self.show_colors = False
+        self.show_brush_sizes = False
+        self.is_eraser = False
 
-        board_toggle_pos = (
-            self.cap.width - int(self.cap.width * HORIZONTAL_MARGIN_RATIO),
-            int(self.cap.height * VERTICAL_MARGIN_RATIO),
-        )
-        pen_toggle_pos = (
-            self.cap.width - int(self.cap.width * HORIZONTAL_MARGIN_RATIO),
-            int(
-                self.cap.height * (VERTICAL_MARGIN_RATIO + BUTTON_SPACING_RATIO)
-            ),
-        )
+    def initialize(self):
+        """Initialize camera and UI components."""
+        self.camera.start()
+        self.wait_for_camera()
 
-        self.menu = Menu(
-            board_toggle_pos=board_toggle_pos,
-            pen_toggle_pos=pen_toggle_pos,
-        )
-        self.menu.create_buttons()
-
-        self.is_canvas_hidden = False
-        self.are_colors_hidden = False
-        self.are_pen_sizes_hidden = False
-        self.is_using_eraser = False
-
-        self.current_tool = SHAPES[0]  # Default to free draw
-
-    def run(self):
-        """Run the Mekus Virtual Canvas application."""
-        self.cap.start()
-        self.start_live_camera()
-        self.stop()
-
-    def start_live_camera(self):
-        """Start the live camera feed and process frames."""
-        self.init_camera()
-
-        while self.cap.is_running:
-            try:
-                frame = self.cap.get_frame()
-            except RuntimeError as e:
-                print(f"Error capturing frame: {e}")
-                break
-
-            processed_frame = self.process_frame(frame)
-
-            if self.tracker.detect_click():
-                finger_pos = self.tracker.get_hand_position(processed_frame)
-                index_finger_pos = finger_pos.get(
-                    self.tracker.INDEX_FINGER_KEY, None
-                )
-                clicked_button = self.menu.handle_interaction(
-                    finger_pos=index_finger_pos, is_clicking=True
-                )
-                if clicked_button:
-                    print(f"Clicked button: {clicked_button}")
-
-            if self.tracker.is_drawing_mode:
-                processed_frame = self.draw_on_canvas(processed_frame)
-
-            self.frame = processed_frame.copy()
-            self.menu.draw_ui(self)
-
-            self.show_frame()
-
-            if cv.waitKey(self.WAIT_KEY_DELAY) == self.EXIT_KEY:
-                break
-
-    def init_camera(self):
-        """Initialize the camera and wait for the first frame."""
-        TIMEOUT = 5  # seconds to wait for the camera to start
-        start_time = time.time()
-
-        print("\n\nInitializing camera...\n\n")
-        while (
-            self.cap.latest_frame is None
-            and (time.time() - start_time) < TIMEOUT
-        ):
-            time.sleep(0.05)
-
-        height, width = self.cap.latest_frame.shape[:2]
-
-        self.canvas = np.zeros((height, width, 4), dtype=np.uint8)
-        self.preview_canvas = np.zeros((height, width, 4), dtype=np.uint8)
-        self.frame = np.zeros((height, width, 3), dtype=np.uint8)
+        try:
+            self.wait_for_camera()
+        except RuntimeError as e:
+            print(f"Error: {e}")
+            return
 
         self.setup_menu()
+        self.setup_canvas()
 
-    def process_frame(self, frame):
-        """Process frame and draw hand landmarks."""
-        frame = cv.flip(
-            frame, 1
-        )  # Flip the frame horizontally for mirror effect
+    def wait_for_camera(self):
+        """Wait until the camera is ready."""
+        TIMEOUT = 5  # seconds
+        start_time = time.time()
 
-        processed_frame = self.tracker.process_frame(frame)
+        print("Waiting for camera to initialize...")
+        while (
+            self.camera.get_immediate_frame() is None
+            and (time.time() - start_time) < TIMEOUT
+        ):
+            time.sleep(0.1)
 
-        display_frame = processed_frame.copy()
+        if self.camera.get_immediate_frame() is None:
+            raise RuntimeError("Camera initialization timed out.")
 
-        if not self.is_canvas_hidden:
-            # Get alpha channel and reshape for broadcasting
-            alpha_channel = self.canvas[
-                :, :, self.ALPHA_INDEX
-            ]  # Correctly extracts alpha channel
-            alpha_channel = alpha_channel[
-                ..., np.newaxis
-            ]  # Reshape to (H, W, 1)
-
-            # Convert to float for blending
-            display_frame = display_frame.astype(float)
-            canvas_rgb = cv.cvtColor(self.canvas, cv.COLOR_BGRA2BGR).astype(
-                float
-            )
-
-            # Normalize alpha
-            alpha_normalized = alpha_channel / self.MAX_ALPHA
-
-            # Perform blending
-            blended = (
-                display_frame * (1 - alpha_normalized)
-                + canvas_rgb * alpha_normalized
-            )
-            display_frame = blended.astype(np.uint8)
-
-        self.menu.draw_ui(self)
-        return display_frame
-
-    def draw_on_canvas(self, frame: np.ndarray):
-        """
-        Combine drawing canvas with camera frame using proper alpha blending.
-        """
-        # Ensure canvas has content
-        if not self.has_drawing_content():
-            return frame
-
-        # Convert canvas to 3-channel if needed
-        canvas_rgb = self.prepare_canvas_for_blending()
-
-        # Perform alpha blending
-        return self.alpha_blend(
-            foreground=canvas_rgb,
-            background=frame,
-            alpha=self.get_canvas_alpha(),
+    def setup_canvas(self):
+        """Initialize the drawing canvas."""
+        self.canvas_size = (
+            int(self.camera.height - (self.camera.height * 0.20)),
+            int(self.camera.width - (self.camera.width * 0.20)),
+        )
+        self.canvas_origin = (
+            int(self.camera.height * 0.20),  # 20% from top
+            int(self.camera.width * 0.05),  # 5% from left
         )
 
-    def has_drawing_content(self):
-        """Check if canvas contains visible drawings"""
-        return np.any(self.canvas[self.ALPHA_INDEX] > 0)  # Check alpha channel
+        height, width = self.canvas_size
+        self.canvas = np.zeros((height, width, 3), dtype=np.uint8)
+        self.canvas[:] = WHITE  # White background
 
-    def prepare_canvas_for_blending(self):
-        """Convert BGRA canvas to BGR by stripping alpha channel"""
-        return cv.cvtColor(self.canvas, cv.COLOR_BGRA2BGR)
+    def setup_menu(self):
+        """Initialize the menu with proper positioning."""
+        # Calculate menu positions based on frame dimensions
+        frame_width = self.camera.width
+        frame_height = self.camera.height
 
-    def get_canvas_alpha(self):
-        """Extract and normalize alpha channel [0,1]"""
-        alpha = self.canvas[self.ALPHA_INDEX]  # Extract alpha channel
-        return (alpha / self.MAX_ALPHA)[
-            ..., None
-        ]  # Normalize and add channel dim
+        # Position toggles on the right side
+        board_toggle_pos = (
+            int(frame_width * 0.1),  # 1% from left
+            int(frame_height * 0.1),  # 10% from top
+        )
+        pen_toggle_pos = (
+            int(frame_width * 0.9),
+            board_toggle_pos[1],  # Spaced vertically
+        )
 
-    def alpha_blend(self, foreground, background, alpha):
-        """Alpha blend two images (foreground over background)"""
-        return (background * (1 - alpha) + foreground * alpha).astype(np.uint8)
+        self.menu = Menu(board_toggle_pos, pen_toggle_pos)
+        self.menu.create_buttons()
 
-    def get_hand_draw_mode(self):
-        """Get the current hand draw mode."""
-        if self.tracker.draw_modes:
-            return self.tracker.draw_modes[self.tracker.SELECTED_HAND_INDEX]
+    def process_frame(self):
+        """Process each frame for drawing and UI interaction."""
+        frame = self.camera.get_frame()
+        if frame is None:
+            return False
 
-        return False
+        # Flip frame horizontally for mirror effect
+        frame = cv.flip(frame, 1)
 
-    def show_frame(self):
-        """Display the frame in a window."""
-        cv.imshow("Mekus Virtual Canvas", self.frame)
+        # Process hand tracking
+        processed_frame = self.tracker.process_frame(frame)
 
-    def stop(self):
-        """Stop the Mekus Virtual Canvas."""
-        self.cap.stop()
+        # Get finger position
+        finger_pos = self.tracker.get_hand_position(processed_frame)
+        index_pos = finger_pos.get(self.tracker.INDEX_FINGER_KEY, None)
+
+        hand_draw_modes = self.tracker.draw_modes
+        will_draw = False
+        if hand_draw_modes:
+            will_draw = hand_draw_modes[0]
+
+        if not will_draw:
+            self.prev_pos = None
+
+        # Handle drawing if canvas is visible
+        if self.tracker.is_drawing_mode and will_draw:
+            self.handle_drawing(index_pos, processed_frame)
+
+        # Handle UI interactions
+        self.handle_ui_interaction(index_pos, processed_frame)
+
+        canvas_y, canvas_x = self.canvas_origin
+        height, width = self.canvas_size
+
+        if self.show_canvas:
+            frame_region = processed_frame[
+                canvas_y : canvas_y + height, canvas_x : canvas_x + width
+            ]
+            blended = cv.addWeighted(frame_region, 0.5, self.canvas, 0.5, 0)
+            processed_frame[
+                canvas_y : canvas_y + height, canvas_x : canvas_x + width
+            ] = blended
+
+        # Display the frame
+        cv.imshow("Virtual Canvas", processed_frame)
+
+        return cv.waitKey(self.FRAME_DELAY) != self.ESC_KEY
+
+    def handle_drawing(self, finger_pos, frame):
+        """Handle drawing operations on the canvas."""
+        if not self.show_canvas or not finger_pos:
+            return
+
+        # Convert finger position to canvas coordinates
+        canvas_x = finger_pos[0] - self.canvas_origin[1]
+        canvas_y = finger_pos[1] - self.canvas_origin[0]
+
+        # Check if finger is within canvas bounds
+        if not (
+            0 <= canvas_x < self.canvas_size[1]
+            and 0 <= canvas_y < self.canvas_size[0]
+        ):
+            self.prev_pos = None
+            return
+
+        if not self.prev_pos:
+            self.prev_pos = (canvas_x, canvas_y)
+
+        # Handle eraser or drawing tool
+        if self.is_eraser:
+            cv.circle(
+                self.canvas,
+                (canvas_x, canvas_y),
+                self.brush_size * 2,  # Make eraser larger
+                WHITE,
+                -1,
+            )
+
+        if not self.is_eraser:
+            if self.prev_pos:
+                cv.line(
+                    self.canvas,
+                    self.prev_pos,
+                    (canvas_x, canvas_y),
+                    self.current_color,
+                    self.brush_size,
+                )
+
+        # previous position
+        self.prev_pos = (canvas_x, canvas_y)
+
+    def handle_ui_interaction(self, finger_pos, frame):
+        """Handle interactions with UI buttons."""
+        if finger_pos is None:
+            return
+
+        # Check for button clicks
+        clicked_button = self.menu.handle_interaction(
+            finger_pos=finger_pos, is_clicking=self.tracker.detect_click()
+        )
+
+        print(f"Clicked button: {clicked_button}")
+
+        if clicked_button:
+            self.handle_button_action(clicked_button)
+
+        # Draw UI elements
+        self.menu.draw_ui(self, frame)
+
+    def handle_button_action(self, button):
+        """Execute actions based on button clicks."""
+        if button.label == "Board":
+            self.tracker.toggle_drawing_mode()
+            self.show_canvas = not self.show_canvas
+
+        if button.label == "Colors":
+            self.show_colors = not self.show_colors
+
+        if button.label == "Size":
+            self.show_brush_sizes = not self.show_brush_sizes
+
+        if button.label == "Eraser":
+            self.is_eraser = not self.is_eraser
+
+        if button in self.menu.color_buttons:
+            self.current_color = button.color
+            self.is_eraser = False
+
+        if button in self.menu.pen_size_buttons:
+            self.brush_size = button.radius
+
+        if button == self.menu.clear_button:
+            self.canvas[:] = WHITE
+
+        if button in self.menu.shape_buttons:
+            self.current_tool = button.label
+            self.is_eraser = False
+
+    def run(self):
+        """Main application loop."""
+        self.initialize()
+
+        while self.process_frame():
+            pass
+
+        self.camera.stop()
         cv.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    # Initialize and run the Mekus Virtual Canvas application
-    mekus = MekusVirtualCanvas()
-    mekus.run()
+    app = VirtualCanvas()
+    app.run()
